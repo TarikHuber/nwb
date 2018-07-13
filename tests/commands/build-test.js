@@ -32,7 +32,6 @@ describe('command: build', function() {
   }
 
   describe('building a React app', () => {
-    let builtAppSource
     let builtHTML
 
     before(done => {
@@ -42,7 +41,6 @@ describe('command: build', function() {
         process.chdir(path.join(tmpDir, 'test-app'))
         cli(['build'], (err) => {
           expect(err).toNotExist('No errors building a React app')
-          builtAppSource = fs.readFileSync(glob.sync('dist/app*.js')[0], 'utf8')
           builtHTML = fs.readFileSync('dist/index.html', 'utf8')
           done(err)
         })
@@ -58,21 +56,18 @@ describe('command: build', function() {
         'app.js',
         'app.js.map',
         'index.html',
-        'manifest.js',
-        'manifest.js.map',
         'react.svg',
+        'runtime.js',
+        'runtime.js.map',
         'vendor.js',
         'vendor.js.map',
       ])
     })
-    it('generates displayName for React.createClass calls in the build', () => {
-      expect(builtAppSource).toInclude('displayName:"App"')
-    })
-    it('injects the Webpack manifest into generated HTML', () => {
+    it('injects the Webpack runtime into generated HTML', () => {
       expect(builtHTML).toInclude('window.webpackJsonp')
     })
-    it('does not generate a <script src> for the manifest', () => {
-      expect(builtHTML).toNotInclude('src="/manifest"')
+    it('does not generate a <script src> for the runtime', () => {
+      expect(builtHTML).toNotInclude('src="/runtime"')
     })
     it('injects scripts in the correct order', () => {
       let appIndex = builtHTML.indexOf('src="/app')
@@ -90,7 +85,7 @@ describe('command: build', function() {
         expect(err).toNotExist('No errors creating a new React component')
         process.chdir(path.join(tmpDir, 'test-component'))
         cli(['build'], (err) => {
-          expect(err).toNotExist('No errors building a React component')
+          expect(err).toNotExist()
           done(err)
         })
       })
@@ -102,7 +97,7 @@ describe('command: build', function() {
         'index.js',
       ])
     })
-    it('creates an ES6 modules build', () => {
+    it('creates an ES modules build', () => {
       expect(glob.sync('*', {cwd: path.resolve('es')})).toEqual([
         'index.js',
       ])
@@ -124,10 +119,6 @@ describe('command: build', function() {
         /^demo\.\w{8}\.js\.map/,
         'index.html',
       ])
-    })
-    it('generates displayName for React.createClass calls in the demo build', () => {
-      expect(fs.readFileSync(glob.sync('demo/dist/demo*.js')[0], 'utf8'))
-        .toInclude('displayName:"Demo"')
     })
   })
 

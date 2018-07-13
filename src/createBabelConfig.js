@@ -1,17 +1,55 @@
+// @flow
 import path from 'path'
 
+import {UserError} from './errors'
 import {typeOf} from './utils'
+
+type BabelPluginConfig = string | [string, Object];
+
+type BabelConfig = {
+  presets: BabelPluginConfig[],
+  plugins?: BabelPluginConfig[],
+};
+
+type BuildOptions = {
+  commonJSInterop?: boolean,
+  env?: Object,
+  modules?: false | string,
+  plugins?: BabelPluginConfig[],
+  presets?: string[],
+  removePropTypes?: true | Object,
+  setRuntimePath?: false,
+  stage?: number,
+  webpack?: boolean,
+};
+
+type UserOptions = {
+  cherryPick?: string | string[],
+  config?: (BabelConfig) => BabelConfig,
+  env?: Object,
+  loose?: boolean,
+  plugins?: BabelPluginConfig[],
+  presets?: BabelPluginConfig[],
+  reactConstantElements?: boolean,
+  removePropTypes?: false | Object,
+  runtime?: boolean | string,
+  stage?: false | number,
+};
 
 const DEFAULT_STAGE = 2
 const RUNTIME_PATH = path.dirname(require.resolve('babel-runtime/package'))
 
-export default function createBabelConfig(buildConfig = {}, userConfig = {}) {
+export default function createBabelConfig(
+  buildConfig: BuildOptions = {},
+  userConfig: UserOptions = {},
+  userConfigPath: string = ''
+): BabelConfig {
   let {
     commonJSInterop,
-    env,
     modules = false,
     plugins: buildPlugins = [],
     presets: buildPresets,
+    removePropTypes: buildRemovePropTypes = false,
     setRuntimePath,
     stage: buildStage = DEFAULT_STAGE,
     webpack = true,
@@ -19,26 +57,53 @@ export default function createBabelConfig(buildConfig = {}, userConfig = {}) {
 
   let {
     cherryPick,
+    config: userConfigFunction,
+    env = {},
     loose,
     plugins: userPlugins = [],
     presets: userPresets,
+    reactConstantElements,
+    removePropTypes: userRemovePropTypes,
     runtime: userRuntime,
     stage: userStage,
   } = userConfig
 
-  let presets = []
-  let plugins = []
+  let presets: BabelPluginConfig[] = []
+  let plugins: BabelPluginConfig[] = []
 
   // Default to loose mode unless explicitly configured
   if (typeOf(loose) === 'undefined') {
     loose = true
   }
 
-  // ES2015 and ES2016 presets
   presets.push(
-    [require.resolve('babel-preset-es2015'), {loose, modules}],
-    require.resolve('babel-preset-es2016'),
+    [require.resolve('babel-preset-env'), {loose, modules, ...env}]
   )
+
+  // Additional build presets
+  if (Array.isArray(buildPresets)) {
+    buildPresets.forEach(preset => {
+      // Presets which are configurable via user config are specified by name so
+      // customisation can be handled in this module.
+      if (preset === 'react-prod') {
+        // Hoist static element subtrees up so React can skip them when reconciling
+        if (reactConstantElements !== false) {
+          plugins.push(require.resolve('babel-plugin-transform-react-constant-elements'))
+        }
+        // Remove or wrap propTypes and optionally remove prop-types imports
+        if (userRemovePropTypes !== false) {
+          plugins.push([
+            require.resolve('babel-plugin-transform-react-remove-prop-types'),
+            typeof userRemovePropTypes === 'object' ? userRemovePropTypes : {}
+          ])
+        }
+      }
+      // All other presets are assumed to be paths to a preset module
+      else {
+        presets.push(preset)
+      }
+    })
+  }
 
   // Stage preset
   let stage = userStage != null ? userStage : buildStage
@@ -51,48 +116,32 @@ export default function createBabelConfig(buildConfig = {}, userConfig = {}) {
     }
   }
 
-  // Additional build presets
-  if (Array.isArray(buildPresets)) {
-    buildPresets.forEach(preset => {
-      if (preset === 'inferno') {
-        presets.push(require.resolve('../babel-presets/inferno'))
-      }
-      else if (preset === 'preact') {
-        presets.push(require.resolve('../babel-presets/preact'))
-      }
-      else if (preset === 'react') {
-        presets.push(require.resolve('babel-preset-react'))
-        if (process.env.NODE_ENV === 'development') {
-          plugins.push(
-            require.resolve('babel-plugin-transform-react-jsx-source'),
-            require.resolve('babel-plugin-transform-react-jsx-self')
-          )
-        }
-      }
-      else if (preset === 'react-hmre') {
-        presets.push(require.resolve('../babel-presets/react-hmre'))
-      }
-      else if (preset === 'react-prod') {
-        presets.push(require.resolve('../babel-presets/react-prod'))
-      }
-      else {
-        throw new Error(`Unknown build preset: ${preset}`)
-      }
-    })
-  }
-
   if (userPresets) {
-    presets = [...presets, ...userPresets]
+    presets = presets.concat(userPresets)
   }
 
-  let config = {presets}
+  let config: BabelConfig = {presets}
 
   plugins = plugins.concat(buildPlugins, userPlugins)
+
+  // App builds use the 'react-prod' preset to remove/wrap propTypes, component
+  // builds use this config instead.
+  if (buildRemovePropTypes) {
+    // User config can disable removal of propTypes
+    if (userRemovePropTypes !== false) {
+      plugins.push(
+        [require.resolve('babel-plugin-transform-react-remove-prop-types'), {
+          ...typeof buildRemovePropTypes === 'object' ? buildRemovePropTypes : {},
+          ...typeof userRemovePropTypes === 'object' ? userRemovePropTypes : {}
+        }]
+      )
+    }
+  }
 
   // The Runtime transform imports various things into a module based on usage.
   // Turn regenerator on by default to enable use of async/await and generators
   // without configuration.
-  let runtimeTransformOptions = {
+  let runtimeTransformOptions: Object = {
     helpers: false,
     polyfill: false,
     regenerator: true,
@@ -135,9 +184,13 @@ export default function createBabelConfig(buildConfig = {}, userConfig = {}) {
     config.plugins = plugins
   }
 
-  // Pass any given env config through
-  if (env) {
-    config.env = env
+  // Finally, give the user a chance to do whatever they want with the generated
+  // config.
+  if (typeof userConfigFunction === 'function') {
+    config = userConfigFunction(config)
+    if (!config) {
+      throw new UserError(`babel.config() in ${userConfigPath} didn't return anything - it must return the Babel config object.`)
+    }
   }
 
   return config

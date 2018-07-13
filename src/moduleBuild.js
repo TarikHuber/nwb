@@ -2,16 +2,15 @@ import fs from 'fs'
 import path from 'path'
 
 import spawn from 'cross-spawn'
-import glob from 'glob'
 import ora from 'ora'
 import runSeries from 'run-series'
 import merge from 'webpack-merge'
 
 import cleanModule from './commands/clean-module'
+import {getPluginConfig, getUserConfig} from './config'
 import createBabelConfig from './createBabelConfig'
 import debug from './debug'
 import {UserError} from './errors'
-import getUserConfig from './getUserConfig'
 import {deepToString} from './utils'
 import webpackBuild from './webpackBuild'
 import {createBanner, createExternals, logGzippedFileSizes} from './webpackUtils'
@@ -29,8 +28,8 @@ const DEFAULT_BABEL_IGNORE_CONFIG = [
 /**
  * Run Babel with generated config written to a temporary .babelrc.
  */
-function runBabel(name, {copyFiles, outDir, src}, buildBabelConfig, userBabelConfig, cb) {
-  let babelConfig = createBabelConfig(buildBabelConfig, userBabelConfig)
+function runBabel(name, {copyFiles, outDir, src}, buildBabelConfig, userConfig, cb) {
+  let babelConfig = createBabelConfig(buildBabelConfig, userConfig.babel, userConfig.path)
   babelConfig.ignore = DEFAULT_BABEL_IGNORE_CONFIG
 
   debug('babel config: %s', deepToString(babelConfig))
@@ -70,10 +69,11 @@ function buildUMD(args, buildConfig, userConfig, cb) {
   let entry = path.resolve(args._[1] || 'src/index.js')
   let webpackBuildConfig = {
     babel: buildConfig.babel,
-    entry: [entry],
+    entry: [userConfig.npm.umd.entry || entry],
     output: {
       filename: `${pkg.name}.js`,
       library: userConfig.npm.umd.global,
+      libraryExport: 'default',
       libraryTarget: 'umd',
       path: path.resolve('umd'),
     },
@@ -81,19 +81,28 @@ function buildUMD(args, buildConfig, userConfig, cb) {
     polyfill: false,
     plugins: {
       banner: createBanner(pkg),
+      uglify: false,
     },
   }
 
-  process.env.NODE_ENV = 'development'
+  process.env.NODE_ENV = 'production'
   webpackBuild(null, args, webpackBuildConfig, (err, stats1) => {
     if (err) {
       spinner.fail()
       return cb(err)
     }
-    process.env.NODE_ENV = 'production'
+
+    if (userConfig.uglify === false) {
+      spinner.succeed()
+      console.log()
+      logGzippedFileSizes(stats1)
+      return cb()
+    }
+
     webpackBuildConfig.babel = merge(buildConfig.babel, buildConfig.babelProd || {})
     webpackBuildConfig.devtool = 'source-map'
     webpackBuildConfig.output.filename = `${pkg.name}.min.js`
+    webpackBuildConfig.plugins.uglify = true
     webpackBuild(null, args, webpackBuildConfig, (err, stats2) => {
       if (err) {
         spinner.fail()
@@ -109,26 +118,30 @@ function buildUMD(args, buildConfig, userConfig, cb) {
 
 export default function moduleBuild(args, buildConfig = {}, cb) {
   // XXX Babel doesn't support passing the path to a babelrc file any more
-  if (glob.sync('.babelrc').length > 0) {
+  if (fs.existsSync('.babelrc')) {
     throw new UserError(
-      'Unable to build the module as there is a .babelrc in your project',
-      'nwb needs to write a temporary .babelrc to configure the build',
+      'Unable to build the module as there is a .babelrc in your project\n' +
+      'nwb needs to write a temporary .babelrc to configure the build'
     )
   }
 
   let src = path.resolve('src')
-  let userConfig = getUserConfig(args)
+  let pluginConfig = getPluginConfig(args)
+  let userConfig = getUserConfig(args, {pluginConfig})
   let copyFiles = !!args['copy-files']
 
-  let tasks = [
-    (cb) => cleanModule(args, cb),
-    (cb) => runBabel(
+  let tasks = [(cb) => cleanModule(args, cb)]
+
+  // The CommonJS build is enabled by default, and must be explicitly
+  // disabled if you don't want it.
+  if (userConfig.npm.cjs !== false) {
+    tasks.push((cb) => runBabel(
       'ES5',
       {copyFiles, outDir: path.resolve('lib'), src},
       merge(buildConfig.babel, buildConfig.babelDev || {}, {
-        // Don't force ES5 users of the ES5 build to eat a .require
+        // Don't force CommonJS users of the CommonJS build to eat a .require
         commonJSInterop: true,
-        // Transpile modules to CommonJS for ES5 users
+        // Transpile modules to CommonJS
         modules: 'commonjs',
         // Don't set the path to nwb's babel-runtime, as it will need to be a
         // peerDependency of your module if you use transform-runtime's helpers
@@ -137,16 +150,16 @@ export default function moduleBuild(args, buildConfig = {}, cb) {
         // Don't enable webpack-specific plugins
         webpack: false,
       }),
-      userConfig.babel,
+      userConfig,
       cb
-    )
-  ]
+    ))
+  }
 
-  // The ES6 modules build is enabled by default, and must be explicitly
+  // The ES modules build is enabled by default, and must be explicitly
   // disabled if you don't want it.
   if (userConfig.npm.esModules !== false) {
     tasks.push((cb) => runBabel(
-      'ES6 modules',
+      'ES modules',
       {copyFiles, outDir: path.resolve('es'), src},
       merge(buildConfig.babel, buildConfig.babelDev || {}, {
         // Don't set the path to nwb's babel-runtime, as it will need to be a
@@ -156,7 +169,7 @@ export default function moduleBuild(args, buildConfig = {}, cb) {
         // Don't enable webpack-specific plugins
         webpack: false,
       }),
-      userConfig.babel,
+      userConfig,
       cb
     ))
   }

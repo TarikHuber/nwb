@@ -1,15 +1,17 @@
+// @flow
 import path from 'path'
 
 import {cyan as opt, green as cmd, red, yellow as req} from 'chalk'
 import parseArgs from 'minimist'
-import resolve from 'resolve'
 import semver from 'semver'
 
-import pkg from '../package.json'
 import {CONFIG_FILE_NAME} from './constants'
 import {UserError} from './errors'
+import {modulePath} from './utils'
 
-export default function cli(argv, cb) {
+import type {ErrBack} from './types'
+
+export default function cli(argv: string[], cb: ErrBack) {
   let args = parseArgs(argv, {
     alias: {
       c: 'config',
@@ -22,6 +24,7 @@ export default function cli(argv, cb) {
   let command = args._[0]
 
   if (args.version || /^v(ersion)?$/.test(command)) {
+    let pkg = require('../package.json')
     console.log(`v${pkg.version}`)
     process.exit(0)
   }
@@ -33,6 +36,14 @@ Options:
   ${opt('-c, --config')}   config file to use ${opt(`[default: ${CONFIG_FILE_NAME}]`)}
   ${opt('-h, --help')}     display this help message
   ${opt('-v, --version')}  print nwb's version
+
+Quick development commands:
+  ${cmd('nwb inferno')} ${req('(run|build) <entry>')}  run or build an Inferno app
+  ${cmd('nwb preact')} ${req('(run|build) <entry>')}   run or build a Preact app
+  ${cmd('nwb react')} ${req('(run|build) <entry>')}    run or build a React app
+  ${cmd('nwb web')} ${req('(run|build) <entry>')}      run or build a vanilla JavaScript app
+
+  Run ${cmd('nwb (inferno|preact|react|web) help')} for options.
 
 Project creation commands:
   ${cmd('nwb new')} ${req('<project_type> <dir_name>')} ${opt('[options]')}
@@ -51,7 +62,7 @@ Project creation commands:
 
   Options:
     ${opt('-f, --force')}   force project creation, don't ask questions
-    ${opt('--es-modules')}  enable or disable (${opt('--no-es-modules')}) an ES6 modules build
+    ${opt('--es-modules')}  enable or disable (${opt('--no-es-modules')}) an ES modules build
     ${opt('--no-git')}      disable creation of a Git repo with an initial commit
     ${opt('--react')}       version of React to install for React apps & components
     ${opt('--umd=<var>')}   enable or disable (${opt('--no-umd')}) a UMD build
@@ -64,7 +75,7 @@ Project creation commands:
     ${req('web-app')}          a plain JavaScript app
     ${req('web-module')}       a plain JavaScript npm module
 
-Generic development commands:
+Generic project development commands:
   Arguments for these commands depend on the type of project they're being run
   in. See the applicable project type-specific commands below.
 
@@ -72,6 +83,7 @@ Generic development commands:
     Clean and build the project.
 
     Options:
+      ${opt('--no-html')}    disable creation of an index.html if you don't need it
       ${opt('--no-vendor')}  disable creation of 'vendor' bundle for node_modules/ modules
 
   ${cmd('nwb clean')}
@@ -83,6 +95,7 @@ Generic development commands:
     Options:
       ${opt('--install')}      automatically install missing npm dependencies
       ${opt('--host')}         hostname to bind the dev server to
+      ${opt('--no-clear')}     don't clear the console when displaying build status
       ${opt('--no-fallback')}  disable serving of the index page from any path
       ${opt('--port')}         port to run the dev server on ${opt('[default: 3000]')}
       ${opt('--reload')}       auto reload the page if hot reloading fails
@@ -102,12 +115,12 @@ Project type-specific commands:
     Build a React app from ${opt('entry')} to ${opt('dist_dir')}.
 
   ${cmd('nwb build-react-component')} ${opt('[umd_entry]')}
-    Create ES5, ES6 modules and UMD builds for a React component.
+    Create ES5, ES modules and UMD builds for a React component.
 
     Options:
-      ${opt('--copy-files')}    copy files which won't be transpiled by Babel (e.g. CSS)
-      ${opt('--no-demo')}       don't build the demo app, if present
-      ${opt('--no-proptypes')}  don't wrap propTypes with an environment check
+      ${opt('--copy-files')}        copy files which won't be transpiled by Babel (e.g. CSS)
+      ${opt('--no-demo')}           don't build the demo app, if there is one
+      ${opt('--[keep-]proptypes')}  keep component propTypes in production builds
 
   ${cmd('nwb build-preact-app')} ${opt('[entry] [dist_dir]')}
     Build a Preact app from ${opt('entry')} to ${opt('dist_dir')}.
@@ -119,7 +132,7 @@ Project type-specific commands:
     Build a web app from ${opt('entry')} to ${opt('dist_dir')}.
 
   ${cmd('nwb build-web-module')} ${opt('[umd_entry]')}
-    Create ES5, ES6 modules and UMD builds for a web module.
+    Create ES5, ES modules and UMD builds for a web module.
 
   ${cmd('nwb clean-app')} ${opt('[dist_dir]')}
     Delete ${opt('dist_dir')}.
@@ -133,8 +146,14 @@ Project type-specific commands:
   ${cmd('nwb serve-react-app')} ${opt('[entry]')}
     Serve a React app from ${opt('entry')}
 
+    Options:
+      ${opt('--no-hmre')}  disable use of React Transform for Hot Module Replacement & Errors
+
   ${cmd('nwb serve-react-demo')}
     Serve a React demo app from demo/src/index.js.
+
+    Options:
+      ${opt('--no-hmre')}  disable use of React Transform for Hot Module Replacement & Errors
 
   ${cmd('nwb serve-preact-app')} ${opt('[entry]')}
     Serve a Preact app from ${opt('entry')}
@@ -181,7 +200,7 @@ Helper commands:
   // Validate the command is in foo-bar-baz format before trying to resolve a
   // module path with it.
   if (!/^[a-z]+(?:-[a-z]+)*$/.test(command)) {
-    unknownCommand()
+    return unknownCommand()
   }
 
   let commandModulePath
@@ -189,7 +208,11 @@ Helper commands:
     commandModulePath = require.resolve(`./commands/${command}`)
   }
   catch (e) {
-    unknownCommand()
+    // XXX Flow complains that commandModulePath might be uninitialised if we
+    //     return from here.
+  }
+  if (commandModulePath == null) {
+    return unknownCommand()
   }
 
   // Check if the user is running a version of nwb from outside their project
@@ -197,7 +220,7 @@ Helper commands:
   if (/^(build|check|clean|serve|test)/.test(command)) {
     let localNwbPath = null
     try {
-      localNwbPath = path.dirname(resolve.sync('nwb/package', {basedir: process.cwd()}))
+      localNwbPath = modulePath('nwb')
     }
     catch (e) {
       // nwb isn't installed locally to where the command is being run
@@ -214,8 +237,8 @@ Helper commands:
         // pass
       }
       let requiredNwbVersion = pkg && (
-        pkg.devDependencies && pkg.devDependencies.nwb ||
-        pkg.dependencies && pkg.dependencies.nwb
+        (pkg.devDependencies && pkg.devDependencies.nwb) ||
+        (pkg.dependencies && pkg.dependencies.nwb)
       )
       if (requiredNwbVersion) {
         let runningNwbVersion = require('../package').version
@@ -230,5 +253,8 @@ Helper commands:
   }
 
   let commandModule = require(commandModulePath)
-  commandModule(args, cb)
+  // Quick commands handle running themselves
+  if (typeof commandModule === 'function') {
+    commandModule(args, cb)
+  }
 }

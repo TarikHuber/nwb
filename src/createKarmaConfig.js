@@ -4,7 +4,7 @@ import merge from 'webpack-merge'
 
 import createWebpackConfig from './createWebpackConfig'
 import debug from './debug'
-import getPluginConfig from './getPluginConfig'
+import {UserError} from './errors'
 import {deepToString, typeOf} from './utils'
 
 // The following defaults are combined into a single extglob-style pattern to
@@ -107,7 +107,8 @@ export function getKarmaPluginConfig({codeCoverage = false, userConfig = {}} = {
   if (browsers.indexOf('PhantomJS') !== -1 && !findPlugin(plugins, 'launcher:PhantomJS')) {
     plugins.push(require('karma-phantomjs-launcher'))
   }
-  if (browsers.indexOf('Chrome') !== -1 && !findPlugin(plugins, 'launcher:Chrome')) {
+  if (browsers.some(function matchChrom(b) { return /Chrom/.test(b) }) &&
+      !findPlugin(plugins, 'launcher:Chrome')) {
     plugins.push(require('karma-chrome-launcher'))
   }
 
@@ -119,7 +120,7 @@ export function getKarmaPluginConfig({codeCoverage = false, userConfig = {}} = {
   return {browsers, frameworks, plugins, reporters}
 }
 
-export default function createKarmaConfig(args, buildConfig, userConfig) {
+export default function createKarmaConfig(args, buildConfig, pluginConfig, userConfig) {
   let isCi = process.env.CI || process.env.CONTINUOUS_INTEGRATION
   let codeCoverage = isCi || !!args.coverage
 
@@ -131,9 +132,7 @@ export default function createKarmaConfig(args, buildConfig, userConfig) {
   })
 
   let {excludeFromCoverage = DEFAULT_EXCLUDE_FROM_COVERAGE} = userKarma
-  if (typeOf(excludeFromCoverage) === 'string') excludeFromCoverage = [excludeFromCoverage]
   let testFiles = userKarma.testFiles || DEFAULT_TEST_FILES
-  if (typeOf(testFiles) === 'string') testFiles = [testFiles]
 
   // Polyfill by default for browsers which lack features (hello PhantomJS)
   let files = [require.resolve('babel-polyfill/dist/polyfill.js')]
@@ -165,7 +164,7 @@ export default function createKarmaConfig(args, buildConfig, userConfig) {
     ]
   }
 
-  let karmaConfig = merge({
+  let karmaConfig = {
     browsers,
     coverageReporter: {
       dir: path.resolve('coverage'),
@@ -191,7 +190,7 @@ export default function createKarmaConfig(args, buildConfig, userConfig) {
       },
       plugins: {
         status: {
-          test: true
+          quiet: true,
         }
       },
       resolve: {
@@ -203,12 +202,26 @@ export default function createKarmaConfig(args, buildConfig, userConfig) {
       server: {
         hot: false,
       },
-    }), getPluginConfig(), userConfig),
+    }), pluginConfig, userConfig),
     webpackMiddleware: {
-      noInfo: true,
-      quiet: true,
+      logLevel: 'silent'
     },
-  }, userKarma.extra)
+  }
+
+  // Any extra user Karma config is merged into the generated config to give
+  // them even more control.
+  if (userKarma.extra) {
+    karmaConfig = merge(karmaConfig, userKarma.extra)
+  }
+
+  // Finally, give the user a chance to do whatever they want with the generated
+  // config.
+  if (typeOf(userKarma.config) === 'function') {
+    karmaConfig = userKarma.config(karmaConfig)
+    if (!karmaConfig) {
+      throw new UserError(`karma.config() in ${userConfig.path} didn't return anything - it must return the Karma config object.`)
+    }
+  }
 
   debug('karma config: %s', deepToString(karmaConfig))
   return karmaConfig

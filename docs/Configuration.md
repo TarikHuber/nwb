@@ -38,12 +38,29 @@ If a function is exported, it will be passed an object with the following proper
 
 - `args`: a parsed version of arguments passed to the `nwb` command
 - `command`: the name of the command currently being executed, e.g. `'build'` or `'test'`
-- `webpack`: nwb's version of the `webpack` module, giving you access to the other plugins webpack provides.
+- `webpack`: nwb's version of the `webpack` module, giving you access to plugins bundled with Webpack.
 
 #### Example Configuration Files
 
-- [react-hn's `nwb.config.js`](https://github.com/insin/react-hn/blob/concat/nwb.config.js) is a simple configuration file with minor tweaks to Babel and Webpack config.
+- [bootstrap-4-nwb's `nwb.config.js`](https://github.com/insin/bootstrap-4-nwb/blob/master/nwb.config.js) is a simple configuration file with minor tweaks to Babel and Webpack config.
 - [React Yelp Clone's `nwb.config.js`](https://github.com/insin/react-yelp-clone/blob/nwb/nwb.config.js) configures Babel, Karma and Webpack to allow nwb to be dropped into an existing app to handle its development tooling, [reducing the amount of `devDependencies` and configuration](https://github.com/insin/react-yelp-clone/compare/master...nwb) which need to be managed.
+
+### Configuration Via Arguments
+
+Configuration for the `babel`, `webpack`, `devServer`, `karma` and `npm` properties documented below can also be provided via arguments using dotted paths, instead of tweaking your `nwb.config.js` file for a single run, or instead of needing to add a config file for [Quick Development commands](/docs/guides/QuickDevelopment.md#quick-development-with-nwb):
+
+```sh
+nwb build-react-app --babel.stage=2
+```
+
+> **Note:** If you have a config file, these arguments will act as overrides.
+>
+> nwb uses [minimist](https://github.com/substack/minimist) for argument parsing, so here's quick cheatsheet if you wish to make use of this functionality:
+>
+> - `--config.example` is `true`
+> - `--no-config.example` is `false`
+> - `--config.example=value` is `'value'`
+> - `--config.example=one --config.example=two` is `['one', 'two']`
 
 ### Configuration Object
 
@@ -55,27 +72,37 @@ The configuration object can include the following properties:
 - [Babel Configuration](#babel-configuration)
   - [`babel`](#babel-object)
   - [`babel.cherryPick`](#cherrypick-string--arraystring) - enable cherry-picking for destructured `import` statements
+  - [`babel.env`](#env-object) - additional configuration for `babel-preset-env`
   - [`babel.loose`](#loose-boolean) - enable loose mode for Babel plugins which support it
-  - [`babel.plugins`](#plugins-arraystring--array) - extra Babel plugins to be used
-  - [`babel.presets`](#presets-arraystring) - extra Babel presets to be used
+  - [`babel.plugins`](#plugins-string--array) - extra Babel plugins to be used
+  - [`babel.presets`](#presets-string--array) - extra Babel presets to be used
+  - [`babel.removePropTypes`](#removeproptypes-object--false) - disable or configure removal of React component `propTypes` in production builds
+  - [`babel.reactConstantElements`](#reactconstantelements-false) - disable use of React constant element hoisting in production builds
   - [`babel.runtime`](#runtime-string--boolean) - enable the `transform-runtime` plugin with different configurations
   - [`babel.stage`](#stage-number--false) - control which experimental and upcoming JavaScript features can be used
+  - [`babel.config`](#config-function) - an escape hatch for manually editing the generated Babel config
 - [Webpack Configuration](#webpack-configuration)
   - [`webpack`](#webpack-object)
   - [`webpack.aliases`](#aliases-object) - rewrite certain import paths
   - [`webpack.autoprefixer`](#autoprefixer-string--object) - options for Autoprefixer
   - [`webpack.compat`](#compat-object) - enable Webpack compatibility tweaks for commonly-used modules
+  - [`webpack.copy`](#copy-array--object) - patterns and options for `CopyWebpackPlugin`
+  - [`webpack.debug`](#debug-boolean) - create a more debuggable production build
   - [`webpack.define`](#define-object) - options for `DefinePlugin`, for replacing certain expressions with values
-  - [`webpack.extractText`](#extracttext-object) - options for `ExtractTextPlugin`
+  - [`webpack.extractCSS`](#extractCSS-object--false) - configure use of `MiniCssExtractPlugin`
   - [`webpack.html`](#html-object) - options for `HtmlPlugin`
   - [`webpack.install`](#install-object) - options for `NpmInstallPlugin`
-  - [`webpack.rules`](#rules-object) - tweak the configuration of the default Webpack rules
-    - [Default Rules](#default-rules)
-    - [Configuring PostCSS](#configuring-postcss)
-    - [Configuring CSS Preprocessor Plugins](#configuring-css-preprocessor-plugins)
   - [`webpack.publicPath`](#publicpath-string) - path to static resources
+  - [`webpack.rules`](#rules-object) - tweak the configuration of generated Webpack rules and their loaders
+    - [Default Rules](#default-rules)
+    - [Customising loaders](#customising-loaders)
+    - [Disabling default rules](#disabling-default-rules)
+  - [`webpack.styles`](#styles-object--false) - customise creation of Webpack rules for stylesheets
   - [`webpack.uglify`](#uglify-object--false) - configure use of Webpack's `UglifyJsPlugin`
   - [`webpack.extra`](#extra-object) - an escape hatch for extra Webpack config, which will be merged into the generated config
+  - [`webpack.config`](#config-function-1) - an escape hatch for manually editing the generated Webpack config
+- [Dev Server Configuration](#dev-server-configuration)
+  - [`devServer`](#devserver-object) - configure Webpack Dev Server
 - [Karma Configuration](#karma-configuration)
   - [`karma`](#karma-object)
   - [`karma.browsers`](#browsers-arraystring--plugin) - browsers tests are run in
@@ -86,11 +113,14 @@ The configuration object can include the following properties:
   - [`karma.testContext`](#testcontext-string) - point to a Webpack context module for your tests
   - [`karma.testFiles`](#testfiles-string--arraystring) - patterns for test files
   - [`karma.extra`](#extra-object-1) - an escape hatch for extra Karma config, which will be merged into the generated config
+  - [`karma.config`](#config-function-2) - an escape hatch for manually editing the generated Karma config
 - [npm Build Configuration](#npm-build-configuration)
   - [`npm`](#npm-object)
-  - [`npm.esModules`](#esmodules-boolean)
+  - [`npm.cjs`](#esmodules-boolean) - toggle creation of a CommonJS build
+  - [`npm.esModules`](#esmodules-boolean) - toggle creation of an ES modules build
   - UMD build
-    - [`npm.umd`](#umd-string--object) - enable a UMD build which exports a global variable
+    - [`npm.umd`](#umd-string--object--false) - configure a UMD build which exports a global variable
+      - [`umd.entry`](#entry-string) - use a different entry point for the UMD build
       - [`umd.global`](#global-string) - global variable name exported by UMD build
       - [`umd.externals`](#externals-object) - dependencies to use via global variables in UMD build
     - [`package.json` fields](#packagejson-umd-banner-configuration)
@@ -130,9 +160,9 @@ module.exports = {
 
 ##### `cherryPick`: `String | Array<String>`
 
-**Note:** this feature only works if you're using ES6 `import` syntax.
-
 Module names to apply `import` cherry-picking to.
+
+> This feature only works if you're using `import` syntax.
 
 If you import a module with destructuring, the entire module will normally be included in your build, even though you're only using specific pieces:
 
@@ -160,11 +190,15 @@ module.exports = {
 
 This is implemented using [babel-plugin-lodash](https://github.com/lodash/babel-plugin-lodash) - please check its issues for compatibility problems with modules you're using `cherryPick` with and report any new ones you find.
 
+##### `env`: `Object`
+
+Additional [options for `babel-preset-env`](https://github.com/babel/babel-preset-env#options) - nwb uses `babel-preset-env` to transpile ECMAScript features which aren't natively available in browsers yet.
+
 ##### `loose`: `Boolean`
 
-Some Babel plugins have a [loose mode](http://www.2ality.com/2015/12/babel6-loose-mode.html) in which they output simpler, potentially faster code rather than following the semantics of the ES6 spec closely.
+Some Babel plugins have a [loose mode](http://www.2ality.com/2015/12/babel6-loose-mode.html) in which they output simpler, potentially faster code rather than following the semantics of the ES spec closely.
 
-**Loose mode is enabled by default with nwb**.
+**nwb enables loose mode by default**.
 
 If you want to disable loose mode (e.g. to check your code works in the stricter normal mode for forward-compatibility purposes), set it to `false`.
 
@@ -172,15 +206,17 @@ e.g. to disable loose mode only when running tests:
 
 ```js
 module.exports = {
-  babel {
+  babel: {
     loose: process.env.NODE_ENV === 'test'
   }
 }
 ```
 
-##### `plugins`: `Array<String | Array>`
+##### `plugins`: `String` | `Array`
 
 Additional Babel plugins to use.
+
+A single additional plugin which doesn't need a configuration object can be specified as a String, otherwise provide an Array.
 
 nwb commands are run in the current working directory, so if you need to configure additional Babel plugins or presets, you can install them locally, pass their names and let Babel import them for you.
 
@@ -192,21 +228,55 @@ npm install babel-plugin-react-html-attrs
 ```js
 module.exports = {
   babel: {
-    plugins: ['react-html-attrs']
+    plugins: 'react-html-attrs'
   }
 }
 ```
 
-##### `presets`: `Array<String>`
+##### `presets`: `String` | `Array`
 
 Additional Babel presets to use.
+
+A single additional preset which doesn't need a configuration object can be specified as a String, otherwise provide an Array.
+
+##### `removePropTypes`: `Object | false`
+
+Since React `propTypes` are only used in development mode, nwb removes them from React app production builds by default using the [react-remove-prop-types](https://github.com/oliviertassinari/babel-plugin-transform-react-remove-prop-types) transform.
+
+Set to `false` to disable use of this transform:
+
+```js
+module.exports = {
+  babel: {
+    removePropTypes: false,
+  }
+}
+```
+
+Provide an object to configure the [transform's options](https://github.com/oliviertassinari/babel-plugin-transform-react-remove-prop-types#options):
+
+```js
+module.exports = {
+  babel: {
+    removePropTypes: {
+      // Remove imports of the 'prop-types' module as well
+      // Only safe to enable if you're only using this module for propTypes
+      removeImport: true
+    },
+  }
+}
+```
+
+##### `reactConstantElements`: `false`
+
+Set this to `false` to disable use of the [React constant element hoisting transform](https://babeljs.io/docs/plugins/transform-react-constant-elements/) in React app production builds.
 
 ##### `runtime`: `String | Boolean`
 
 Babel's [runtime transform](https://babeljs.io/docs/plugins/transform-runtime/) does 3 things by default:
 
 1. Imports helper modules from `babel-runtime` instead of duplicating **helpers** in every module which needs them.
-2. Imports a local **polyfill** for new ES6 built-ins (`Promise`) and static methods (e.g. `Object.assign`) when they're used in your code.
+2. Imports a local **polyfill** for new ES built-ins (`Promise`) and static methods (e.g. `Object.assign`) when they're used in your code.
 3. Imports the **regenerator** runtime required to use `async`/`await` when needed.
 
 nwb's default config turns the regenerator runtime import on so you can use `async`/`await` and generators.
@@ -225,7 +295,7 @@ To enable all features, set `runtime` to `true`.
 
 To disable use of the runtime transform, set `runtime` to `false`.
 
-> Note: if you use `async`/`await` or enable the runtime transform's other features in a React Component or Web Module project, you will need to add `babel-runtime` to your package.json `peerDependencies` to ensure it can be resolved when somebody else uses your module from npm.
+> **Note:** if you use `async`/`await` or enable the runtime transform's other features in a React Component or Web Module project, you will need to add `babel-runtime` to your package.json `peerDependencies` to ensure it can be resolved when somebody else uses your module from npm.
 
 ##### `stage`: `Number | false`
 
@@ -237,14 +307,14 @@ Controls which Babel preset will be used to enable use of experimental, proposed
 | ----- | ------------- | -------- |
 | [0](https://babeljs.io/docs/plugins/preset-stage-0) | Strawman, just an idea |`do {...}` expressions, `::` function bind operator |
 | [1](https://babeljs.io/docs/plugins/preset-stage-1) | Proposal: this is worth working on | export extensions |
-| [2](https://babeljs.io/docs/plugins/preset-stage-2) | Draft: initial spec | class properties, `@decorator` syntax ( using the [Babel Legacy Decorator plugin](https://github.com/loganfsmyth/babel-plugin-transform-decorators-legacy)) - **enabled by default** |
+| [2](https://babeljs.io/docs/plugins/preset-stage-2) | Draft: initial spec | class properties, `@decorator` syntax (using the [Babel Legacy Decorator plugin](https://github.com/loganfsmyth/babel-plugin-transform-decorators-legacy)) - **enabled by default** |
 | [3](https://babeljs.io/docs/plugins/preset-stage-3) | Candidate: complete spec and initial browser implementations | object rest/spread `...` syntax,  `async`/`await`, `**` exponentiation operator, trailing function commas |
 
 e.g. if you want to use export extensions in your app, you should set `stage` to `1`:
 
 ```js
 module.exports = {
-  babel {
+  babel: {
     stage: 1
   }
 }
@@ -254,8 +324,27 @@ Stage 2 is enabled by default - to disable use of a stage preset entirely, set `
 
 ```js
 module.exports = {
-  babel {
+  babel: {
     stage: false
+  }
+}
+```
+
+##### `config`: `Function`
+
+Finally, if you need *complete* control, provide a `babel.config()` function which will be given the generated config.
+
+> **Note:** you *must* return a config object from this function.
+
+```js
+module.exports = {
+  webpack: {
+    config(config) {
+      // Change config as you wish
+
+      // You MUST return the edited config object
+      return config
+    }
   }
 }
 ```
@@ -325,37 +414,85 @@ Certain libraries require specific configuration to play nicely with Webpack - n
 
 The following libraries are supported:
 
-###### `enzyme`: `Boolean`
+###### `intl` / `moment` / `react-intl`: `String | Array | Object`
 
-Set to `true` for [Enzyme](http://airbnb.io/enzyme/) compatibility - this assumes you're using the latest version of React (v15).
+*changed in v0.21.0*
 
-###### `moment`: `Object`
+If you use [intl](https://www.npmjs.com/package/intl), [Moment.js](http://momentjs.com/) or [react-intl](https://github.com/yahoo/react-intl) in a Webpack build, all the locales they support will be imported by default and your build will be larger than you were expecting!
 
-If you use [Moment.js](http://momentjs.com/) in a Webpack build, all the locales it supports will be imported by default and your build will be about 139KB larger than you were expecting!
+Provide an Array specifying language codes for the locales you want to load, or a String if you only need one locale.
 
-Provide an object with a `locales` Array specifying language codes for the locales you want to load.
-
-###### `sinon`: `Boolean`
-
-Set to `true` for [Sinon.js](http://sinonjs.org/) 1.x compatibility.
+> For backwards-compatibility with older versions of nwb, locales can also be provided as an Object with a `locales` property.
 
 ---
 
-Here's an example config showing the use of every `compat` setting:
+Example config showing the use of multiple `compat` settings:
 
 ```js
 module.exports = {
   webpack: {
     compat: {
-      enzyme: true,
-      moment: {
-        locales: ['de', 'en-gb', 'es', 'fr', 'it']
-      },
-      sinon: true
+      moment: ['de', 'en-gb', 'es', 'fr', 'it']
     }
   }
 }
 ```
+
+##### `copy`: `Array | Object`
+
+Configures [`CopyWebpackPlugin`](https://github.com/webpack-contrib/copy-webpack-plugin#readme) patterns and options.
+
+By default, nwb uses `CopyWebpackPlugin` to copy any contents in an app's `public/` directory to the output directory.
+
+To add extra [copy patterns](https://github.com/webpack-contrib/copy-webpack-plugin#pattern-properties), you can provide an Array of them:
+
+```js
+module.exports = {
+  webpack: {
+    copy: [
+      // Copy directory contents to output
+      {from: 'path/to/mystuff'}
+    ]
+  }
+}
+```
+
+To configure [plugin options](https://github.com/webpack-contrib/copy-webpack-plugin#options), provide an object with `options` or `patterns` properties:
+
+```js
+module.exports = {
+  webpack: {
+    copy: {
+      options: {
+        debug: true
+      },
+      patterns: [
+        {from: 'path/to/mystuff'}
+      ]
+    }
+  }
+}
+```
+
+##### `debug`: `boolean`
+
+Enables a more debuggable production build:
+
+- code which would normally be removed from a production build is removed, but code is not compressed.
+- modules ids will be file system names rather than a generated hash.
+
+It's recommended that you toggle this on via a configuration argument so you don't forget to remove it later:
+
+```sh
+npm run build -- --webpack.debug
+```
+```sh
+nwb preact build app.js --webpack.debug
+```
+
+If you set `debug` in your config file, nwb will always display a hint to remind you to remove it later.
+
+> **Note:** if you've customised `UglifyJsPlugin` settings via [`webpack.uglify` config](#uglify-object--false), only `webpack.uglify.compress` will be used when a debug build is enabled.
 
 ##### `define`: `Object`
 
@@ -375,21 +512,27 @@ module.exports = {
 }
 ```
 
-##### `extractText`: `Object`
+##### `extractCSS`: `Object | false`
 
-Configures [options for `ExtractTextWebpackPlugin`](https://github.com/webpack/extract-text-webpack-plugin#readme).
+*added in v0.22.0*
 
-This can be used to control whether or not CSS is extracted from all chunks in an app which uses code splitting, or only the initial chunk:
+Configures [`MiniCssExtractPlugin` options](https://github.com/webpack-contrib/mini-css-extract-plugin#configuration).
+
+By default, nwb uses [`MiniCssExtractPlugin`](https://github.com/webpack-contrib/mini-css-extract-plugin#readme) to extract imported stylesheets into `.css` files when creating a build.
+
+Default configuration is to a chunk hash in extracted filenames, equivalent to:
 
 ```js
 module.exports = {
   webpack: {
-    extractText: {
-      allChunks: true
+    extractCSS: {
+      filename: process.env.NODE_ENV === 'production' ? `[name].[contenthash:8].css` : '[name].css'
     }
   }
 }
 ```
+
+Set to `false` to disable extraction of `.css` files in builds (in which case [`style-loader`](https://github.com/webpack-contrib/style-loader#readme) will handle injecting `<style>` tags at runtime, as it does when running the development server).
 
 ##### `html`: `Object`
 
@@ -444,127 +587,7 @@ module.exports = {
 
 ##### `install`: `Object`
 
-Configures [options for `NpmInstallPlugin`](https://github.com/ericclemmons/npm-install-webpack-plugin#usage), which will be used if you pass an `--install` flag to nwb commands which run a development server.
-
-##### `rules`: `Object`
-
-Each [Webpack rule](https://webpack.js.org/configuration/module/#module-rules) used in nwb's Webpack configuration has an associated id you can use to customise it.
-
-To customise a rule, add a prop to the `rules` object matching its id with a configuration object.
-
-Refer to the documentation of the Webpack loader used in each rule (linked to for each [default rule](#default-rules) documented below) for configuration options which can be set.
-
-Generic rule options such as `include` and `exclude` can be configured alongside loader-specific options - you can also use an explicit `options` object if necessary to separate this configuration.
-
-e.g. to enable [CSS Modules][CSS Modules] for your app's CSS, the following rule configs are equivalent:
-
-```js
-module.exports = {
-  webpack: {
-    rules: {
-      css: {
-        options: {
-          modules: true,
-          localIdentName: '[hash:base64:5]'
-        }
-      }
-    }
-  }
-}
-```
-```js
-module.exports = {
-  webpack: {
-    rules: {
-      css: {
-        modules: true,
-        localIdentName: '[hash:base64:5]'
-      }
-    }
-  }
-}
-```
-
-###### Default Rules
-
-Default rules configured by nwb and the ids it gives them are:
-
-- `babel` - handles `.js` files with [babel-loader][babel-loader]
-
-  > Default config: `{exclude: /node_modules/, options: {babelrc: false, cacheDirectory: true}}`
-
-- `css-pipeline` - handles your app's own `.css` files by chaining together a number of loaders:
-
-  > Default config: `{exclude: /node_modules/}`
-
-  Chained loaders are:
-
-  - `style` - (only when serving) applies styles using [style-loader][style-loader]
-
-  - `css` - handles URLs, minification and CSS Modules using [css-loader][css-loader]
-
-    > Default config: `{options: {importLoaders: 1}}`
-
-  - `postcss` - processes CSS with PostCSS plugins using [postcss-loader][postcss-loader]; by default, this is configured to manage vendor prefixes in CSS using [Autoprefixer][autoprefixer]
-
-    > Default config: `{options: {plugins: [Autoprefixer]}}`
-
-- `vendor-css-pipeline` - handles `.css` files imported from `node_modules/`, with the same set of chained loaders as `css-pipeline` but with a `vendor-` prefix in their id.
-
-  > Default config: `{include: /node_modules/}`
-
-- `graphics` - handles `.gif`, `.png` and `.webp` files using using [url-loader][url-loader]
-
-- `svg` - handles `.svg` files using using [url-loader][url-loader]
-
-- `jpeg` - handles `.jpg` and `.jpeg` files using [url-loader][url-loader]
-
-- `fonts` - handles `.eot`, `.otf`, `.ttf`, `.woff` and `.woff2` files using [url-loader][url-loader]
-
-- `video` - handles `.mp4`, `.ogg` and `.webm` files using [url-loader][url-loader]
-
-- `audio` - handles `.wav`, `.mp3`, `.m4a`, `.aac`, and `.oga` files using [url-loader][url-loader]
-
-> Default config for all url-loaders in production builds is `{options: {limit: 1, name: '[name].[hash:8].[ext]'}}`, otherwise `{options: {limit: 1, name: '[name].[ext]'}}`.
-
-> Default `limit` config prevents any files being inlined by default, while allowing you to configure `url-loader` to enable inlining if you need it.
-
-###### Configuring PostCSS
-
-By default, nwb uses [PostCSS](http://postcss.org/) to manage vendor prefixes in CSS using [Autoprefixer][autoprefixer].
-
-If you want to make more significant use of PostCSS, you can use `webpack.rules` to provide your own list of plugins.
-
-e.g. to provide your own list of plugins for your app's own CSS, configure `webpack.rules.postcss`:
-
-```js
-module.exports = {
-  webpack: {
-    rules: {
-      postcss: {
-        plugins: [
-          require('precss')()
-          require('autoprefixer')()
-        ]
-      }
-    }
-  }
-}
-```
-
-###### Configuring CSS Preprocessor Plugins
-
-Rule ids for configuring nwb [CSS preprocessor plugins](/docs/Plugins.md#css-preprocessor-plugins) follow a similar pattern to `css-pipeline` and `vendor-css-pipeline` above, except they make use of an id associated with each preprocessor.
-
-Using [nwb-sass](https://github.com/insin/nwb-sass) as example, you can use the following ids in `webpack.rules` config to configure each part of the pipeline for your app's Sass stylesheets:
-
-- `sass-pipeline`
-  - `sass-style` (only when serving)
-  - `sass-css`
-  - `sass-postcss`
-  - `sass` (use to configure [sass-loader][sass-loader])
-
-There will also be a `vendor-sass-pipeline` for Sass stylesheets with the same setup as `sass-pipeline` but using a `vendor-` prefix.
+Configures [options for `NpmInstallPlugin`](https://github.com/webpack-contrib/npm-install-webpack-plugin#usage), which will be used if you pass an `--install` flag to nwb commands which run a development server.
 
 ##### `publicPath`: `String`
 
@@ -590,7 +613,7 @@ module.exports = {
 
 The exception is the React component demo app, which doesn't set a `publicPath`, generating a build without any root URL paths to static resources. This allows you to serve it at any path without configuration (e.g. on GitHub Project Pages), or open the generated `index.html` file directly in a browser, which is ideal for distributing app builds which don't require a server to run.
 
-If you want to create a path-independent build, set `publicPath` to blank or `null`:
+If you want to create a path-independent build, set `publicPath` to blank:
 
 ```js
 module.exports = {
@@ -602,20 +625,122 @@ module.exports = {
 
 The trade-off for path-independence is HTML5 History routing won't work, as serving up `index.html` at anything but its real path will mean its static resource URLs won't resolve. You will have to fall back on hash-based routing if you need it.
 
+##### `rules`: `Object`
+
+Each [Webpack rule](https://webpack.js.org/configuration/module/#module-rules) generated by nwb has a unique id you can use to customise it:
+
+```js
+module.exports = {
+  webpack: {
+    rules: {
+      // Inline GIFs and PNGs smaller than 10KB
+      graphics: {
+        limit: 10000
+      }
+    }
+  }
+}
+```
+
+Rule configuration objects can contain rule options such as `include` and `exclude` (which control which files the rule applies to) and options for the rule's loader (which control what happens to the resource).
+
+Loader options can be provided directly in the configuration object, as shown above, or you can use a nested `options` object.
+
+Refer to the documentation of the Webpack loader used in each rule (linked to in [default rules](#default-rules) below) for options which can be configured.
+
+###### Default Rules
+
+Default rules generated by nwb and their associated ids are:
+
+- `babel` - handles `.js` files with [babel-loader][babel-loader]
+
+  > Default config: `{exclude: /node_modules/, options: {babelrc: false, cacheDirectory: true}}`
+
+- `graphics` - handles `.gif`, `.png` and `.webp` files using using [url-loader][url-loader]
+
+- `svg` - handles `.svg` files using using [url-loader][url-loader]
+
+- `jpeg` - handles `.jpg` and `.jpeg` files using [url-loader][url-loader]
+
+- `fonts` - handles `.eot`, `.otf`, `.ttf`, `.woff` and `.woff2` files using [url-loader][url-loader]
+
+- `video` - handles `.mp4`, `.ogg` and `.webm` files using [url-loader][url-loader]
+
+- `audio` - handles `.wav`, `.mp3`, `.m4a`, `.aac`, and `.oga` files using [url-loader][url-loader]
+
+> Default config for all url-loaders is `{options: {limit: 1, name: '[name].[hash:8].[ext]'}}`.
+>
+> Default `limit` config prevents any files being inlined by default, while allowing you to configure `url-loader` to enable inlining if you need it.
+
+See the [Stylesheets documentation](/docs/Stylesheets.md#) for default rules generated for stylesheets.
+
+###### Customising loaders
+
+Provide `loader` config for a rule to replace its loader:
+
+```js
+module.exports = {
+  webpack: {
+    rules: {
+      svg: {
+        loader: 'svg-inline-loader',
+        options: {classPrefix: true}
+      }
+    }
+  }
+}
+```
+
+To chain loaders, provide `use` config:
+
+```js
+module.exports = {
+  webpack: {
+    rules: {
+      svg: {
+        use: [
+          {
+            loader: 'svg-inline-loader',
+            options: {classPrefix: true}
+          },
+          'image-webpack-loader'
+        ]
+      }
+    }
+  }
+}
+```
+
+###### Disabling default rules
+
+To disable a default rule, set its id to `false`:
+
+```js
+module.exports = {
+  webpack: {
+    rules: {
+      svg: false
+    }
+  }
+}
+```
+
+##### `styles`: `Object | false`
+
+Configures how nwb creates Webpack config for importing stylesheets.
+
+See the [Stylesheets documentation](/docs/Stylesheets.md#stylesheets) for details.
+
 ##### `uglify`: `Object | false`
 
-Configures [options for Webpack's `UglifyJsPlugin`](https://webpack.github.io/docs/list-of-plugins.html#uglifyjsplugin), which will be used when creating production builds.
+Configures [options for Webpack's `UglifyJsPlugin`](https://github.com/webpack-contrib/uglifyjs-webpack-plugin#readme), which will be used when creating production builds.
 
 Any additional options provided will be merged into nwb's defaults, which are:
 
 ```js
 {
-  compress: {
-    warnings: false
-  },
-  output: {
-    comments: false
-  },
+  cache: true,
+  parallel: true,
   sourceMap: true
 }
 ```
@@ -626,8 +751,10 @@ For example, if you want to strip development-only code but keep the output read
 module.exports = {
   webpack: {
     uglify: {
-      mangle: false,
-      beautify: true
+      uglifyOptions: {
+        mangle: false,
+        beautify: true
+      }
     }
   }
 }
@@ -647,12 +774,14 @@ module.exports = {
 
 Extra configuration to be merged into the generated Webpack configuration using [webpack-merge](https://github.com/survivejs/webpack-merge#webpack-merge---merge-designed-for-webpack) - see the [Webpack configuration docs](https://webpack.js.org/configuration/) for the available properties.
 
-Note that you *must* use Webpack's own config structure in this object - e.g. to add an extra rule which isn't managed by nwb's own `webpack.rules` config, you would need to provide a list of rules at `webpack.extra.module.rules`.
+> **Note:** Webpack validates the structure of the config it's given, so providing invalid or unexpected config will break the build.
+
+e.g. to add an extra rule which isn't managed by nwb's own `webpack.rules` config, you would need to provide a list of rules at `webpack.extra.module.rules`.
 
 ```js
 var path = require('path')
 
-function(nwb) {
+module.exports = function(nwb) {
   return {
     type: 'react-app',
     webpack: {
@@ -676,9 +805,76 @@ function(nwb) {
 }
 ```
 
+##### `config`: `Function`
+
+Finally, if you need *complete* control, provide a `webpack.config()` function which will be given the generated config.
+
+> **Note:** you *must* return a config object from this function.
+
+```js
+module.exports = {
+  webpack: {
+    config(config) {
+      // Change config as you wish
+
+      // You MUST return the edited config object
+      return config
+    }
+  }
+}
+```
+
+### Dev Server Configuration
+
+nwb uses [Webpack Dev Server](https://github.com/webpack/webpack-dev-server#readme) to serve apps for development - you can tweak the options nwb uses and also enable additional features.
+
+#### `devServer`: `Object`
+
+Configuration for Webpack Dev Server - see Webpack's [`devServer` config documentation](https://webpack.js.org/configuration/dev-server/#devserver) for the available options.
+
+Any `devServer` options provided will be merged on top of the following default options nwb uses:
+
+```js
+{
+  historyApiFallback: true,
+  hot: true,
+  noInfo: true,
+  overlay: true,
+  publicPath: webpackConfig.output.publicPath,
+  quiet: true,
+  watchOptions: {
+    ignored: /node_modules/,
+  },
+}
+```
+
+Notable features you can configure using these options:
+
+- [`devServer.historyApiFallback`](https://webpack.js.org/configuration/dev-server/#devserver-historyapifallback) - configure `disableDotRule` if you need to use dots in your path when using the HTML5 History API.
+
+- [`devServer.https`](https://webpack.js.org/configuration/dev-server/#devserver-https) - enable HTTPS with a default self-signed certificate, or provide your own certificates.
+
+- [`devServer.overlay`](https://webpack.js.org/configuration/dev-server/#devserver-overlay) - disable the compile error overlay, or have it also appear for warnings.
+
+- [`devServer.proxy`](https://webpack.js.org/configuration/dev-server/#devserver-proxy) - proxy certain URLs to a separate API backend development server.
+
+- [`devServer.before`](https://webpack.js.org/configuration/dev-server/#devserver-before) - access the Express app to add your own middleware to the dev server.
+
+e.g. to enable HTTPS:
+
+```js
+module.exports = {
+  devServer: {
+    https: true
+  }
+}
+```
+
 ### Karma Configuration
 
 nwb's default [Karma](http://karma-runner.github.io/) configuration uses the [Mocha](https://mochajs.org/) framework and reporter plugins for it, but you can configure your own preferences.
+
+> **Note:** At runtime, Karma sets a `usePolling` autoWatch option to `true` [if the platform is detected to be macOS or Linux](https://github.com/karma-runner/karma/blob/master/lib/config.js#L318). However, Karma's non-polling file-watching works correctly and consumes dramatically less CPU on macOS. nwb users on macOS will want to set `usePolling: false` within the [`extra:`](#extra-object-1) Object in the `karma:` config section of their `nwb.config.js`.
 
 #### `karma`: `Object`
 
@@ -783,25 +979,7 @@ module.exports = {
 }
 ```
 
-**Note:** If you're configuring frameworks and you want to use the Mocha framework plugin managed by nwb, just pass its name as in the above example.
-
-##### `testContext`: `String`
-
-Use this configuration to point to a [Webpack context module](/docs/Testing.md#using-a-test-context-module) for your tests if you need to run code prior to any tests being run, such as customising the assertion library you're using, or global before and after hooks.
-
-If you provide a context module, it is responsible for including tests via Webpack's  `require.context()` - see the [example in the Testing docs](/docs/Testing.md#using-a-test-context-module).
-
-If the default [`testFiles`](#testfiles-string--arraystring) config wouldn't have picked up your tests, you must also configure it so they can be excluded from code coverage.
-
-##### `testFiles`: `String | Array<String>`
-
-> Default: `.spec.js`, `.test.js` or `-test.js` files anywhere under `src/`, `test/` or `tests/`
-
-[Minimatch glob patterns](https://github.com/isaacs/minimatch) for test files.
-
-If [`karma.testContext`](#testcontext-string) is not being used, this controls which files Karma will run tests from.
-
-This can also be used to exclude tests from code coverage if you're using [`karma.testContext`](#testcontext-string) - if the default `testFiles` patterns wouldn't have picked up your tests, configure this as well to exclude then from code coverage.
+> **Note:** If you're configuring frameworks and you want to use the Mocha framework plugin managed by nwb, just pass its name as in the above example.
 
 ##### `plugins`: `Array<Plugin>`
 
@@ -838,11 +1016,29 @@ module.exports = {
 }
 ```
 
+##### `testContext`: `String`
+
+Use this configuration to point to a [Webpack context module](/docs/Testing.md#using-a-test-context-module) for your tests if you need to run code prior to any tests being run, such as customising the assertion library you're using, or global before and after hooks.
+
+If you provide a context module, it is responsible for including tests via Webpack's  `require.context()` - see the [example in the Testing docs](/docs/Testing.md#using-a-test-context-module).
+
+If the default [`testFiles`](#testfiles-string--arraystring) config wouldn't have picked up your tests, you must also configure it so they can be excluded from code coverage.
+
+##### `testFiles`: `String | Array<String>`
+
+> Default: `.spec.js`, `.test.js` or `-test.js` files anywhere under `src/`, `test/` or `tests/`
+
+[Minimatch glob patterns](https://github.com/isaacs/minimatch) for test files.
+
+If [`karma.testContext`](#testcontext-string) is not being used, this controls which files Karma will run tests from.
+
+This can also be used to exclude tests from code coverage if you're using [`karma.testContext`](#testcontext-string) - if the default `testFiles` patterns wouldn't have picked up your tests, configure this as well to exclude then from code coverage.
+
 ##### `extra`: `Object`
 
 Extra configuration to be merged into the generated Karma configuration using [webpack-merge](https://github.com/survivejs/webpack-merge#webpack-merge---merge-designed-for-webpack).
 
-Note that you *must* use Karma's own config structure in this object.
+> **Note:** you *must* use Karma's own config structure in this object.
 
 e.g. to tweak the configuration of the default Mocha reporter:
 
@@ -859,31 +1055,66 @@ module.exports = {
 }
 ```
 
+##### `config`: `Function`
+
+Finally, if you need *complete* control, provide a `karma.config()` function which will be given the generated config.
+
+> **Note:** you *must* return a config object from this function.
+
+```js
+module.exports = {
+  karma: {
+    config(config) {
+      // Change config as you wish
+
+      // You MUST return the edited config object
+      return config
+    }
+  }
+}
+```
+
 ### npm Build Configuration
 
-By default, nwb creates ES5 and ES6 modules builds for publishing to npm.
+By default, nwb creates CommonJS and ES modules builds for publishing to npm.
 
 #### `npm`: `Object`
 
 npm build configuration is defined in a `npm` object, using the following fields:
 
+##### `cjs`: `Boolean`
+
+> Defaults to `true` if not provided.
+
+Determines whether or not nwb will create a CommonJS build in `lib/` when you run `nwb build` for a React component/library or web module project.
+
+Set to `false` to disable this:
+
+```js
+module.exports = {
+  npm: {
+    cjs: false
+  }
+}
+```
+
 ##### `esModules`: `Boolean`
 
 > Defaults to `true` if not provided.
 
-Determines whether or not nwb will create an ES6 modules build for use by ES6 module bundlers when you run `nwb build` for a React component/library or web module project.
+Determines whether or not nwb will create an ES modules build for use by bundlers when you run `nwb build` for a React component/library or web module project.
 
-When providing an ES6 modules build, you should also provide the following in `package.json` so compatible module bundlers can find it:
+When providing an ES modules build, you should also provide the following in `package.json` so compatible bundlers can find it:
 
 ```
 "module": "es/index.js",
 ```
 
-These are included automatically if you create a project with an ES6 modules build enabled.
+These are included automatically if you create a project with an ES modules build enabled.
 
-##### `umd`: `String | Object`
+##### `umd`: `String | Object | false`
 
-Configures creation of a UMD build when you run `nwb build` for a React component/library or web module.
+Configures a UMD build when you run `nwb build` for a React component/library or web module.
 
 If you just need to configure the global variable the UMD build will export, you can use a String:
 
@@ -895,7 +1126,34 @@ module.exports = {
 }
 ```
 
-If you also have some external dependencies to configure, you must use an Object containing the following properties:
+If you also have some external dependencies to configure, use an object containing the following properties:
+
+###### `entry`: `String`
+
+Specifies a module which will be the entry point for the UMD build. Otherwise the default entry (`src/index.js`) is used.
+
+Currently, the UMD entry point *must* have a `default` export, but you might want to have named exports from the default entry point for people using your module via npm, e.g. if you're publishing a component library.
+
+```js
+module.exports = {
+  npm: {
+    umd: {
+      global: 'MyComponentLibrary',
+      entry: './umd.js',
+      externals: {
+        'react': 'React'
+      }
+    }
+  }
+}
+```
+
+In this scenario, `umd.js` could `import *` a module which uses named exports and re-export its contents as `default`:
+
+```js
+import * as components from './src/index.js'
+export default components
+```
 
 ###### `global`: `String`
 
@@ -921,6 +1179,8 @@ module.exports = {
 }
 ```
 
+The UMD build can also be explicitly disabled by configuring `umd = false`.
+
 #### `package.json` UMD Banner Configuration
 
 A banner comment added to UMD builds will use as many of the following `package.json` fields as are present:
@@ -939,13 +1199,5 @@ If all fields are present the banner will be in this format:
  */
 ```
 
-[autoprefixer]: https://github.com/postcss/autoprefixer/
-[babel-loader]: https://github.com/babel/babel-loader/
-[CSS Modules]: https://github.com/css-modules/css-modules/
-[css-loader]: https://github.com/webpack/css-loader/
-[isparta-loader]: https://github.com/deepsweet/isparta-loader/
-[npm-install-loader]: https://github.com/ericclemmons/npm-install-loader/
-[postcss-loader]: https://github.com/postcss/postcss-loader/
-[sass-loader]: https://github.com/jtangelder/sass-loader
-[style-loader]: https://github.com/webpack/style-loader/
-[url-loader]: https://github.com/webpack/url-loader/
+[babel-loader]: https://github.com/babel/babel-loader
+[url-loader]: https://github.com/webpack-contrib/url-loader
